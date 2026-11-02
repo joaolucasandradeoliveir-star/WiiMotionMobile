@@ -1,0 +1,62 @@
+workflows:
+  wiimotion-android-debug:
+    name: WiiMotion Mobile - APK Android (Debug)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      java: 17
+
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+
+    scripts:
+      - name: Configurar Android SDK
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+            echo "ERRO: ANDROID_SDK_ROOT não foi definido pela máquina do Codemagic."
+            exit 1
+          fi
+
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+
+          SDKMANAGER=""
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT" -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERRO: sdkmanager não foi encontrado no ambiente do Codemagic."
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Instalar Gradle 8.9 e compilar APK
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          GRADLE_VERSION="8.9"
+          TOOLS_DIR="$CM_BUILD_DIR/.codemagic-tools"
+          GRADLE_HOME="$TOOLS_DIR/gradle-$GRADLE_VERSION"
+          mkdir -p "$TOOLS_DIR"
+
+          if [ ! -x "$GRADLE_HOME/bin/gradle" ]; then
+            curl --fail --location --retry 3 \
+              "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
+              --output "$TOOLS_DIR/gradle-${GRADLE_VERSION}-bin.zip"
+            unzip -q -o "$TOOLS_DIR/gradle-${GRADLE_VERSION}-bin.zip" -d "$TOOLS_DIR"
+          fi
+
+          "$GRADLE_HOME/bin/gradle" --version
+          "$GRADLE_HOME/bin/gradle" --no-daemon --stacktrace :app:assembleDebug
+
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
